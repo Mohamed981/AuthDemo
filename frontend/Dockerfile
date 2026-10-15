@@ -10,7 +10,7 @@ RUN npm ci --workspace frontend --include-workspace-root=false
 COPY frontend/ frontend/
 RUN npm run build --workspace frontend
 
-FROM nginx:1.27-alpine AS runtime
+FROM nginx:1.29-alpine AS runtime
 # Where nginx forwards /api; override at run time if the API is elsewhere.
 ENV API_UPSTREAM=http://api:3000
 COPY frontend/nginx.conf.template /etc/nginx/templates/default.conf.template
