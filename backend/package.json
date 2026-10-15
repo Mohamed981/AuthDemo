@@ -11,7 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
-    "@nestjs/common": "^11.1.0",
+    "@nestjs/common": "^12.1.3",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/jwt": "^11.0.0",
