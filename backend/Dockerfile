@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build from the repository root: docker build -f backend/Dockerfile .
 
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
@@ -10,7 +10,7 @@ RUN npm ci --workspace backend --include-workspace-root=false
 COPY backend/ backend/
 RUN npm run build --workspace backend
 
-FROM node:22-slim AS runtime
+FROM node:25-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
