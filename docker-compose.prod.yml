@@ -1,0 +1,31 @@
+# Runs the production images: the web app on http://localhost:8080, with nginx
+# proxying /api to the API. MongoDB comes from MONGODB_URI in backend/.env.
+#
+#   docker compose -f docker-compose.prod.yml up --build                # build locally
+#   API_IMAGE=ghcr.io/<owner>/<repo>-api:latest \
+#   WEB_IMAGE=ghcr.io/<owner>/<repo>-web:latest \
+#   docker compose -f docker-compose.prod.yml up                        # images from CI
+services:
+  api:
+    image: ${API_IMAGE:-authdemo-api:local}
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file: backend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      TRUST_PROXY: 1
+    restart: unless-stopped
+
+  web:
+    image: ${WEB_IMAGE:-authdemo-web:local}
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
