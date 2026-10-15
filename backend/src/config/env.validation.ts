@@ -12,6 +12,8 @@ const envSchema = z.object({
   // Number of reverse proxies in front of the API (e.g. 1 behind nginx), so
   // rate limiting and logs see the real client IP from X-Forwarded-For.
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
+  // Directory with the built frontend; when set, the API also serves the SPA.
+  STATIC_DIR: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

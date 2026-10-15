@@ -1,0 +1,22 @@
+# Render Blueprint: Dashboard -> New -> Blueprint -> pick this repository.
+# Deploys are triggered by GitHub Actions after CI passes (see README "Live deployment").
+services:
+  - type: web
+    name: authdemo
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /api/health
+    # GitHub Actions calls the deploy hook once CI is green; no deploy on raw pushes.
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Render's load balancer sits in front of the service.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: JWT_SECRET
+        generateValue: true
+      # Your MongoDB Atlas connection string; prompted for on first deploy.
+      - key: MONGODB_URI
+        sync: false

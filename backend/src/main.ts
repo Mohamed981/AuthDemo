@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { requestContext } from './common/middleware/request-context.middleware';
+import { serveFrontend } from './common/static/serve-frontend';
 import type { Env } from './config/env.validation';
 
 const logger = new Logger('Bootstrap');
@@ -21,8 +22,18 @@ async function bootstrap() {
   app.use(requestContext);
   app.useBodyParser('json', { limit: '10kb' });
   app.setGlobalPrefix('api');
-  app.use(helmet());
+  app.use(
+    helmet({
+      // HSTS already enforces HTTPS in production; upgrading requests would
+      // break the bundled frontend when served over plain http://localhost.
+      contentSecurityPolicy: { directives: { upgradeInsecureRequests: null } },
+    }),
+  );
   app.use(cookieParser());
+  const staticDir = config.get('STATIC_DIR', { infer: true });
+  if (staticDir) {
+    serveFrontend(app, staticDir);
+  }
   app.enableCors({
     origin: config.get('CORS_ORIGIN', { infer: true }),
     credentials: true,

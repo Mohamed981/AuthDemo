@@ -6,6 +6,8 @@ Sign up / sign in module built with **NestJS + MongoDB** (backend) and **React +
 backend/    NestJS API (Mongoose, JWT in httpOnly cookie, argon2 password hashing)
 frontend/   React SPA (React Router, React Hook Form, Zod)
 docker-compose.yml        Local MongoDB
+Dockerfile                Single-container image (API + SPA) — see Live deployment
+render.yaml               Render service definition
 docker-compose.prod.yml   Production images (API + nginx web) — see Production deployment
 .github/workflows/        CI/CD pipeline — see CI/CD
 ```
@@ -61,7 +63,7 @@ Per-app scripts are available with `-w backend` / `-w frontend`, e.g. `npm run t
 | POST | [`/auth/signout`](#post-authsignout) | – | End the session |
 | GET | [`/auth/session`](#get-authsession) | – | Current user, or `null` when signed out |
 | GET | [`/auth/me`](#get-authme) | **required** | Current user (protected) |
-| GET | `/health` | – | `200 {"status":"ok","database":"up"}`, or `503` when MongoDB is unreachable. Not rate limited; used by container healthchecks. |
+| GET | `/health` | – | `200 {"status":"ok","database":"up","version":"<commit>"}`, or `503` when MongoDB is unreachable. Not rate limited; used by container healthchecks and the deploy job. |
 
 ### Authentication
 
@@ -289,7 +291,8 @@ Backend environment variables (validated at startup — the app refuses to boot 
 | `JWT_SECRET` | – | Required, ≥ 32 characters |
 | `JWT_EXPIRES_IN` | `3600` | Token / cookie lifetime in seconds |
 | `CORS_ORIGIN` | `http://localhost:5173` | Only relevant when the SPA is served from another origin |
-| `TRUST_PROXY` | `0` | Number of reverse proxies in front of the API (`1` behind the nginx image). Needed so rate limiting sees real client IPs. |
+| `TRUST_PROXY` | `0` | Number of reverse proxies in front of the API (`1` behind the nginx image or Render). Needed so rate limiting sees real client IPs. |
+| `STATIC_DIR` | – | Directory of the built frontend. When set, the API also serves the SPA (set by the root `Dockerfile`). |
 
 ## Security notes
 
@@ -301,17 +304,25 @@ Backend environment variables (validated at startup — the app refuses to boot 
 
 ## Production deployment (Docker)
 
-Two images, both built from the repository root:
+Three images, all built from the repository root:
 
 | Image | Dockerfile | Contents |
 |---|---|---|
+| `app` | `Dockerfile` | **Single container**: the API also serves the built SPA (`STATIC_DIR`), so the whole app is one service on one URL. Used for the [live deployment](#live-deployment-render). |
 | `api` | `backend/Dockerfile` | Compiled NestJS app on Node 22, production dependencies only, runs as the non-root `node` user on port 3000. Healthcheck: `GET /api/health`. |
 | `web` | `frontend/Dockerfile` | The built SPA served by nginx on port 80. Proxies `/api` to `API_UPSTREAM` (default `http://api:3000`) so the session cookie stays same-origin. Hashed assets are cached for a year, `index.html` never. |
 
-Run both locally, using the MongoDB from `backend/.env`:
+Run the single container locally:
 
 ```bash
-docker compose -f docker-compose.prod.yml up --build     # http://localhost:8080
+docker build -t authdemo-app .
+docker run --rm --env-file backend/.env -e NODE_ENV=production -p 8080:3000 authdemo-app   # http://localhost:8080
+```
+
+Or the `api` + `web` pair:
+
+```bash
+docker compose -f docker-compose.prod.yml up --build     # http://localhost:8080, MongoDB from backend/.env
 docker compose -f docker-compose.prod.yml down
 ```
 
@@ -323,13 +334,13 @@ Without Docker: serve `frontend/dist` and the API under the same site (a reverse
 
 GitHub Actions, in `.github/workflows/ci-cd.yml`:
 
-| Trigger | `verify` job | `images` job (after `verify` passes) |
-|---|---|---|
-| Pull request | `npm ci`, typecheck both apps, unit tests, build | Builds both images to check the Dockerfiles (not pushed) |
-| Push to `main` | same | Builds and pushes to GHCR, tagged `latest` and `sha-<commit>` |
-| Tag `v1.2.3` | same | Builds and pushes, tagged `1.2.3` and `sha-<commit>` |
+| Trigger | `verify` job | `deploy` job (after `verify`) | `images` job (after `verify`) |
+|---|---|---|---|
+| Pull request | `npm ci`, typecheck both apps, unit tests, build | – | Builds all three images to check the Dockerfiles (not pushed) |
+| Push to `main` | same | Deploys to Render and waits until the new commit is live ([setup](#live-deployment-render)) | Builds and pushes to GHCR, tagged `latest` and `sha-<commit>` |
+| Tag `v1.2.3` | same | – | Builds and pushes, tagged `1.2.3` and `sha-<commit>` |
 
-Images are published as `ghcr.io/<owner>/<repo>-api` and `ghcr.io/<owner>/<repo>-web`. Publishing uses the workflow's built-in `GITHUB_TOKEN`, so no secrets need to be configured. New packages are private by default; change that under the package's settings on GitHub if needed.
+Images are published as `ghcr.io/<owner>/<repo>-app`, `-api` and `-web`. Publishing uses the workflow's built-in `GITHUB_TOKEN`, so no secrets need to be configured. New packages are private by default; change that under the package's settings on GitHub if needed.
 
 To run the published images:
 
@@ -340,3 +351,26 @@ docker compose -f docker-compose.prod.yml up
 ```
 
 Recommended repository settings: protect `main` and require the **Typecheck, test & build** check before merging. Dependabot (`.github/dependabot.yml`) opens weekly update PRs for npm packages, GitHub Actions and the Docker base images.
+
+> If a push fails with `denied: permission_denied: read_package`, a package with that name already exists but belongs to another (e.g. deleted) repository. Delete the package on GitHub, or grant this repository **Write** under the package's *Manage Actions access*, then re-run the job.
+
+## Live deployment (Render)
+
+The app runs on [Render](https://render.com) as one web service built from the root `Dockerfile`. GitHub Actions deploys it after CI passes on `main`; the live URL is shown on each workflow run and under the repository's **Environments → production**.
+
+### One-time setup
+
+1. **MongoDB access** — Render's outgoing IPs are not fixed, so in MongoDB Atlas → *Network Access* allow `0.0.0.0/0` (access stays protected by the database user's password).
+2. **Create the service** — in the Render dashboard choose **New → Blueprint**, connect this GitHub repository and apply `render.yaml`. When prompted, paste your Atlas connection string as `MONGODB_URI`. `JWT_SECRET` is generated automatically; `NODE_ENV=production` and `TRUST_PROXY=1` are preset.
+3. **Get the URL and deploy hook** — open the new `authdemo` service. Copy its URL (e.g. `https://authdemo-xxxx.onrender.com`) and, under **Settings → Deploy Hook**, copy the hook URL.
+4. **Configure GitHub** — in the repository, **Settings → Secrets and variables → Actions**:
+   - **Secrets** tab: add `RENDER_DEPLOY_HOOK_URL` with the deploy hook URL.
+   - **Variables** tab: add `APP_URL` with the service URL (no trailing slash).
+5. Push to `main` (or re-run the latest workflow). The **Deploy to Render** job triggers the deploy and waits until `GET /api/health` reports the pushed commit.
+
+Until `APP_URL` is set, the deploy job is skipped and the rest of the pipeline runs as usual. Auto-deploy is off in `render.yaml` so Render only deploys commits that passed CI.
+
+### Free plan notes
+
+- The service sleeps after about 15 minutes without traffic; the first request afterwards takes up to a minute while it starts.
+- Rate-limit counters are kept in memory, so they reset on restart and apply per instance.
