@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Build from the repository root: docker build -f frontend/Dockerfile .
 
-FROM node:22-slim AS build
+FROM node:25-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
